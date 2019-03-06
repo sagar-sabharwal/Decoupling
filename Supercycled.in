@@ -1,0 +1,210 @@
+spinsys {
+  channels 1H
+  nuclei 1H
+  shift 1 1250 0 0 0 0 0
+}
+
+par {
+  spin_rate        30000.
+  method           direct
+  gamma_angles     17
+  
+  np               8192
+  proton_frequency 600e6
+  start_operator   I1x
+  detect_operator  I1p
+  crystal_file     alpha0beta0
+  variable rf      87000.
+  variable PMLGsteps 36
+  variable tpmlg   4.0*1.0e6*sqrt(2.0/3.0)/rf
+  verbose          0000
+  
+  variable BigN    40.
+  variable smln    11.
+  variable nu      20.
+
+  variable rfpi    (BigN*spin_rate)/(2.*smln)
+  variable t_pi    (smln*1.e6)/(BigN*2*spin_rate)
+  variable t_RR    (smln*1.e6)/(spin_rate)
+
+  variable Rsteps  BigN*2*2*2*3*5
+  sw               spin_rate/smln
+
+}
+
+proc FID {dw} {
+  global par
+  
+  set par(dw)      $dw
+  set par(sw)      [expr 1.e6/$dw]
+}
+
+proc RsymPulCalc {} {
+  global par
+  
+  set par(rfpi)    [expr ($par(BigN)*$par(spin_rate))/(2.*$par(smln))]
+  set par(t_pi)    [expr ($par(smln)*1.e6)/($par(BigN)*$par(spin_rate))]
+  set par(t_RR)    [expr ($par(smln)*1.e6)/$par(spin_rate)]
+  
+  set par(dw)      [expr $par(smln)*1.e6/$par(spin_rate)]
+  set par(sw)      [expr $par(spin_rate)/$par(smln)]
+
+  set par(ph)      [expr +180.*$par(nu)/$par(BigN)]
+  set par(mph)     [expr -$par(ph)]
+  set par(php90)   [expr 90. + $par(ph)]
+  set par(mphp90)  [expr 90. - $par(ph)]
+  set par(php180)  [expr 180.+ $par(ph)]
+  set par(mphp180) [expr 180.- $par(ph)]
+  set par(php270)  [expr 270.+ $par(ph)]
+  set par(mphp270) [expr 270.- $par(ph)]
+}
+
+proc shapePMLG {Ampl points} {
+   global par sh
+   set n            [expr $points/4]
+   set par(dw)      [expr 4.0e6*sqrt(2.0/3.0)/$par(rf)]
+   set par(sw)      [expr $par(rf)*sqrt(3.0/2.0)/4.0]
+   
+   for {set i 0} {$i < $n} {incr i} {	
+     set alpha      [expr (207.8/(2*$n))+($i)*(207.8/$n)]
+     set alphabar   [expr (207.8/(2*$n))-180+($n-$i+1)*(207.8/$n)]
+     set alphatrbar    [expr (207.8/(2*$n))+(207.8/$n)*($n-$i+1)]
+     set alphatr [expr (207.8/(2*$n))+180+($i)*(207.8/$n)]
+
+#swapped alphatr and alphatrbar
+
+     if {$alpha<0.0}        {set alpha      [expr $alpha+360.0]}
+     if {$alpha>360.0}      {set alpha      [expr $alpha-360.0]}
+     if {$alphabar<0.0}     {set alphabar   [expr $alphabar+360.0]}
+     if {$alphabar>360.0}   {set alphabar   [expr $alphabar-360.0]}
+     if {$alphatr<0.0}      {set alphatr    [expr $alphatr+360.0]}
+     if {$alphatr>360.0}    {set alphatr    [expr $alphatr-360.0]}
+     if {$alphatrbar<0.0}   {set alphatrbar [expr $alphatrbar+360.0]}
+     if {$alphatrbar>360.0} {set alphatrbar [expr $alphatrbar-360.0]}
+     
+     lappend alWave     [list $Ampl $alpha]
+     lappend albrWave   [list $Ampl $alphabar]
+     lappend altrWave   [list $Ampl $alphatr]
+     lappend altrbrWave [list $Ampl $alphatrbar]
+   }
+ 
+   set Wave "$alWave $albrWave $altrWave $altrbrWave"
+   set sh [list2shape $Wave]
+   save_shape $sh $par(type).wave
+
+   return $sh
+}
+
+proc R180 { points } {
+  global par sh
+  RsymPulCalc
+  #Create an arbitrarily long R-R' list.  It must be long enough for all of the phase switches
+  #It is an R-R' element
+  
+  #Pulse calculations for more complicated elements
+  set par(rfpul)      [expr $par(rfpi)]
+
+  set n [expr $points/2/$par(BigN)]
+  
+  for {set i 0} {$i < $n} {incr i} {
+     
+     lappend R180     [list $par(rfpi) [expr $par(ph)-45]]
+     lappend Rp180    [list $par(rfpi) [expr $par(mph)-45]]
+
+  }
+
+  set Wave "$R180 $Rp180"
+  for {set i 1} {$i < [expr $par(BigN)/2]} {incr i} {
+    set Wave "$Wave $R180 $Rp180"
+  }
+  set sh [list2shape $Wave]
+
+  save_shape $sh $par(type).wave
+
+  return $sh
+}
+
+proc R90x3 { points } {
+  global par sh
+  RsymPulCalc
+  
+  #Create an arbitrarily long R-R' list.  It must be long enough for all of the phase switches
+  #It is an R-R' element
+  
+  set par(rfpul)      [expr $par(rfpi)*(3./2.)]
+
+  set n [expr $points/2/3/$par(BigN)]
+  for {set i 0} {$i < $n} {incr i} {
+     
+     lappend R_90a  [list $par(rfpul) [expr $par(ph)-45]]
+     lappend R_90b  [list $par(rfpul) [expr $par(php90)-45]]
+     lappend Rp_90a [list $par(rfpul) [expr $par(mph)+45]]
+     lappend Rp_90b [list $par(rfpul) [expr $par(mphp270)+45]]
+
+  }
+  
+  set Wave "$R_90a $R_90b $R_90a $Rp_90a $Rp_90b $Rp_90a"
+  for {set i 1} {$i < [expr $par(BigN)/2]} {incr i} {
+    set Wave "$Wave $R_90a $R_90b $R_90a $Rp_90a $Rp_90b $Rp_90a"
+  }
+  set sh [list2shape $Wave]
+  save_shape $sh $par(type).wave
+
+  return $sh
+
+}
+
+proc pulseq {} {
+    global par sh
+    
+    if {$par(type) == "None"} {
+      acq_block { delay $par(t_RR) }
+    } elseif {$par(type) == "PMLG"} {
+      acq_block { pulse_shaped $par(tpmlg) $sh }
+    
+    } elseif {$par(type) == "R180"} {
+      acq_block { 
+      pulse_shaped $par(t_RR) $sh 
+      }
+
+    } elseif {$par(type) == "R90x3"} {
+      acq_block { 
+      pulse_shaped $par(t_RR) $sh 
+      }
+    }
+}                 
+
+proc main {} {
+  global par sh
+
+  # None 
+  foreach par(type) { None PMLG R180 R90x3 } {
+      puts "$par(type)"
+      if {$par(type) == "None"} {
+        FID $par(t_RR)
+      }
+      if {$par(type) == "PMLG"} {
+        free_all_shapes
+        set sh [shapePMLG $par(rf) $par(PMLGsteps)]
+        save_shape $sh $par(type).wave
+      }
+      if {$par(type) == "R180"} {
+        free_all_shapes
+        set sh [R180 $par(Rsteps)]
+        save_shape $sh $par(type).wave
+      }
+      if {$par(type) == "R90x3"} {
+        free_all_shapes
+        set sh [R90x3 $par(Rsteps)]
+        save_shape $sh $par(type).wave
+      }
+      
+      set f [fsimpson]
+
+      faddlb $f 30 0
+      fsave $f $par(type).fid
+      fft $f
+      set spename [fsave $f $par(type).spe]
+      funload $f
+  }
+}
